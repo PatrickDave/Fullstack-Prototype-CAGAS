@@ -37,9 +37,8 @@ function handleRouting() {
     return;
   }
 
-  if (isAdminRoute && (!currentUser || currentUser.role !== "Admin")) {
-    showToast("Access denied. Admin only.", "error");
-    navigateTo(currentUser ? "#/profile" : "#/login");
+  if (isAdminRoute && !currentUser) {
+    navigateTo("#/login");
     return;
   }
 
@@ -124,7 +123,7 @@ function setAuthState(isAuth, user = null) {
 
   const navUsername = document.getElementById("navUsername");
   const dropdownWrapper = document.querySelector(".user-dropdown-wrapper");
-  if (navUsername) navUsername.textContent = user ? (user.firstName + " " + user.lastName) : "User";
+  if (navUsername) navUsername.textContent = user ? "Admin" : "User";
   if (dropdownWrapper && isAuth) dropdownWrapper.style.display = "block";
   if (dropdownWrapper && !isAuth) dropdownWrapper.style.display = "none";
 }
@@ -250,9 +249,9 @@ function renderProfile() {
   if (!content || !currentUser) return;
 
   content.innerHTML = `
-    <p><strong>${currentUser.firstName} ${currentUser.lastName}</strong></p>
+    <p><strong>Admin</strong></p>
     <p>Email: ${currentUser.email}</p>
-    <p>Role: ${currentUser.role}</p>
+    <p>Role: Admin</p>
     <button class="btn btn-primary" id="editProfileBtn">Edit Profile</button>
   `;
 

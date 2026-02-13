@@ -29,7 +29,7 @@ body.authenticated .role-logged-out {
 .role-admin {
     display: none;
 }
-body.is-admin .role-admin {
+body.authenticated .role-admin {
     display: block;
 }
 
@@ -40,9 +40,14 @@ body.is-admin .role-admin {
     padding: 15px 40px;
     display: flex;
     justify-content: space-between;
-    justify-content: space-between;
     align-items: center;
-    position: relative;
+    width: 100%;
+}
+
+.navbar::before {
+    content: "";
+    flex: 1;
+    min-width: 0;
 }
 
 .navbar .logo {
@@ -50,11 +55,15 @@ body.is-admin .role-admin {
     text-decoration: none;
     font-size: 20px;
     font-weight: bold;
+    flex-shrink: 0;
 }
 
 .nav-links {
+    flex: 1;
     display: flex;
+    justify-content: flex-end;
     align-items: center;
+    min-width: 0;
 }
 
 .auth-links {
