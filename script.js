@@ -37,8 +37,9 @@ function handleRouting() {
     return;
   }
 
-  if (isAdminRoute && !currentUser) {
-    navigateTo("#/login");
+  if (isAdminRoute && (!currentUser || currentUser.role?.toLowerCase() !== 'admin')) {
+    navigateTo("#/profile");
+    showToast("Access denied. Admin only.", "error");
     return;
   }
 
@@ -69,7 +70,7 @@ const STORAGE_KEY = "ipt_demo_v1";
 
 function loadFromStorage() {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
+    const data = sessionStorage.getItem(STORAGE_KEY);
     if (data) {
       window.db = JSON.parse(data);
       return;
@@ -117,38 +118,47 @@ function setAuthState(isAuth, user = null) {
   currentUser = user;
   document.body.classList.remove("authenticated", "not-authenticated", "is-admin");
   document.body.classList.add(isAuth ? "authenticated" : "not-authenticated");
-  if (isAuth && user?.role === "Admin") {
+  if (isAuth && user?.role?.toLowerCase() === "admin") {
     document.body.classList.add("is-admin");
   }
 
   const navUsername = document.getElementById("navUsername");
   const dropdownWrapper = document.querySelector(".user-dropdown-wrapper");
-  if (navUsername) navUsername.textContent = user ? "Admin" : "User";
+  if (navUsername) {
+    const roleRaw = user?.role || 'user';
+    navUsername.textContent = roleRaw.charAt(0).toUpperCase() + roleRaw.slice(1).toLowerCase();
+  }
   if (dropdownWrapper && isAuth) dropdownWrapper.style.display = "block";
   if (dropdownWrapper && !isAuth) dropdownWrapper.style.display = "none";
 }
 
-function initAuthFromStorage() {
-  const token = localStorage.getItem("auth_token");
+async function initAuthFromStorage() {
+  const token = sessionStorage.getItem("auth_token");
   if (!token) return;
 
-  const account = window.db.accounts.find((a) => a.email === token && a.verified);
-  if (!account) {
-    localStorage.removeItem("auth_token");
-    return;
+  try {
+    const response = await fetch("http://localhost:3000/api/profile", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      setAuthState(true, {
+        email: data.user.username,
+        role: data.user.role,
+        firstName: data.user.firstName || "",
+        lastName: data.user.lastName || ""
+      });
+    } else {
+      sessionStorage.removeItem("auth_token");
+    }
+  } catch (err) {
+    sessionStorage.removeItem("auth_token");
   }
-
-  setAuthState(true, {
-    id: account.id,
-    firstName: account.firstName,
-    lastName: account.lastName,
-    email: account.email,
-    role: account.role,
-  });
 }
 
 // ============ Phase 3: Registration ============
-document.getElementById("registerForm")?.addEventListener("submit", (e) => {
+document.getElementById("registerForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const firstName = document.getElementById("regFirstName").value.trim();
   const lastName = document.getElementById("regLastName").value.trim();
@@ -160,84 +170,105 @@ document.getElementById("registerForm")?.addEventListener("submit", (e) => {
     return;
   }
 
-  const exists = window.db.accounts.some((a) => a.email === email);
-  if (exists) {
-    showToast("Email already registered.", "error");
-    return;
-  }
+  try {
+    const response = await fetch("http://localhost:3000/api/register", {
+      method: "POST",
+      headers: { 'Content-type': 'application/json' },
+      body: JSON.stringify({ username: email, password, firstName, lastName }),
+    });
 
-  const id = window.db.nextId.account++;
-  window.db.accounts.push({
-    id,
-    firstName,
-    lastName,
-    email,
-    password,
-    role: "User",
-    verified: false,
-  });
-  saveToStorage();
-  localStorage.setItem("unverified_email", email);
-  showToast("Registration successful. Please verify your email.", "success");
-  navigateTo("#/verify-email");
+    const data = await response.json();
+
+    if (response.ok) {
+      sessionStorage.setItem("unverified_email", email);
+      showToast("Registration successful. Please verify your email.", "success");
+      navigateTo("#/verify-email");
+    } else {
+      showToast(data.error || "Registration failed.", "error");
+    }
+  } catch (err) {
+    showToast("Network error", "error");
+  }
 });
 
 // ============ Phase 3: Verify Email ============
 function renderVerifyEmailPage() {
-  const email = localStorage.getItem("unverified_email");
+  const email = sessionStorage.getItem("unverified_email");
   const el = document.getElementById("verifyEmail");
   if (el) el.textContent = email || "";
 }
 
 document.getElementById("simulateVerifyBtn")?.addEventListener("click", () => {
-  const email = localStorage.getItem("unverified_email");
+  const email = sessionStorage.getItem("unverified_email");
   if (!email) {
     navigateTo("#/register");
     return;
   }
 
-  const account = window.db.accounts.find((a) => a.email === email);
-  if (account) {
-    account.verified = true;
-    saveToStorage();
-    localStorage.removeItem("unverified_email");
-    sessionStorage.setItem("emailVerified", "1");
-    showToast("Email verified successfully!", "success");
-    navigateTo("#/login");
-  }
+  sessionStorage.removeItem("unverified_email");
+  sessionStorage.setItem("emailVerified", "1");
+  showToast("Email verified successfully!", "success");
+  navigateTo("#/login");
 });
 
 // ============ Phase 3: Login ============
-document.getElementById("loginForm")?.addEventListener("submit", (e) => {
+document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = document.getElementById("loginEmail").value.trim().toLowerCase();
+  const emailOrUsername = document.getElementById("loginEmail").value.trim().toLowerCase();
   const password = document.getElementById("loginPassword").value;
 
-  const account = window.db.accounts.find(
-    (a) => a.email === email && a.password === password && a.verified
-  );
+  const username = emailOrUsername;
 
-  if (!account) {
-    showToast("Invalid email, password, or unverified account.", "error");
-    return;
+  try {
+    const response = await fetch("http://localhost:3000/api/login", {
+      method: "POST",
+      headers: { 'Content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      sessionStorage.setItem('auth_token', data.token);
+      setAuthState(true, {
+        email: data.user.username,
+        role: data.user.role,
+        firstName: data.user.firstName || "",
+        lastName: data.user.lastName || ""
+      });
+      showToast("Login successful!", "success");
+      navigateTo("#/profile");
+    } else {
+      showToast('Login failed: ' + data.error, "error");
+    }
+  } catch (err) {
+    showToast('Network error', "error");
   }
-
-  localStorage.setItem("auth_token", account.email);
-  setAuthState(true, {
-    id: account.id,
-    firstName: account.firstName,
-    lastName: account.lastName,
-    email: account.email,
-    role: account.role,
-  });
-  showToast("Login successful!", "success");
-  navigateTo("#/profile");
 });
+
+// Add Auth Header to Protected Requests
+function getAuthHeader() {
+  const token = sessionStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Example: Fetch admin data
+async function loadAdminDashboard() {
+  const res = await fetch('http://localhost:3000/api/admin/dashboard', {
+    headers: getAuthHeader()
+  });
+  if (res.ok) {
+    const data = await res.json();
+    document.getElementById('content').innerText = data.message;
+  } else {
+    document.getElementById('content').innerText = 'Access denied!';
+  }
+}
 
 // ============ Phase 3: Logout ============
 document.getElementById("logoutLink")?.addEventListener("click", (e) => {
   e.preventDefault();
-  localStorage.removeItem("auth_token");
+  sessionStorage.removeItem("auth_token");
   setAuthState(false);
   navigateTo("#/");
   showToast("Logged out.", "info");
@@ -248,10 +279,12 @@ function renderProfile() {
   const content = document.getElementById("profileContent");
   if (!content || !currentUser) return;
 
+  const roleRaw = currentUser.role || 'user';
+  const role = roleRaw.charAt(0).toUpperCase() + roleRaw.slice(1).toLowerCase();
   content.innerHTML = `
-    <p><strong>Admin</strong></p>
+    <p><strong>${role}</strong></p>
     <p>Email: ${currentUser.email}</p>
-    <p>Role: Admin</p>
+    <p>Role: ${role}</p>
     <button class="btn btn-primary" id="editProfileBtn">Edit Profile</button>
   `;
 
